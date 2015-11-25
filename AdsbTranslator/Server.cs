@@ -71,30 +71,41 @@ namespace AdsbTranslator
 
         private void startServers()
         {
-            rawListener = new TcpListener(IPAddress.Any, rawPort);
-            rawListener.Start();
-
             sbsClient = new SbsClients(sbsPort);
             sbsClient.newThread();
 
             konwerter = new AdsbFormatConverter(fixCRC, aircraftTTL);
+            /////////////////////////////////////////
+            byte[] data = new byte[1024];
+            string stringData;
+            int recv;
+            TcpClient server;
 
-            while (_shouldWork) //we wait for a connection
+            while (true && _shouldWork)
             {
-                TcpClient client = rawListener.AcceptTcpClient();
-                client.ReceiveTimeout = receiveTimeout;
-                NetworkStream ns = client.GetStream();
-                bool tcpConnectionOK = true;
-
-                while (tcpConnectionOK && client.Connected && _shouldWork)
+                try
                 {
-                    byte[] msg = new byte[1024];
+                    server = new TcpClient(sourceAddress, rawPort);
+                }
+                catch (SocketException)
+                {
+                    EventLog.WriteEntry(sSource, "Unable to connect to server. Waiting 60 seconds before reconnecting.");
+                    System.Threading.Thread.Sleep(60000);
+                    continue;
+                }
+
+                NetworkStream ns = server.GetStream();
+
+                while (true)
+                {
                     try
                     {
-                        ns.Read(msg, 0, msg.Length);
-                        String result = System.Text.Encoding.Default.GetString(msg);
+                        data = new byte[1024];
+                        recv = ns.Read(data, 0, data.Length);
+                        stringData = Encoding.ASCII.GetString(data, 0, recv);
+                        
                         Regex r = new Regex(@"\*(.+?)\;");
-                        MatchCollection mc = r.Matches(result);
+                        MatchCollection mc = r.Matches(stringData);
 
                         foreach (Match match in mc)
                         {
@@ -107,25 +118,23 @@ namespace AdsbTranslator
                                 }
                             }
                         }
+
+                        //Console.Write(stringData);
+                        ns.Write(data, 0, 1);
                     }
-                    catch
+                    catch (System.IO.IOException)
                     {
-                        EventLog.WriteEntry(sSource, "Utracono połączenie na porcie RAW lub nastąpił Timeout");
-                        tcpConnectionOK = false;
+                        EventLog.WriteEntry(sSource, "Connection lost. Waiting 60 seconds before reconnecting.");
+                        ns.Close();
+                        server.Close();
+                        System.Threading.Thread.Sleep(60000);
+                        break;
                     }
                 }
-                sbsClient.stopThread();
-
-                TcpClient clientTemp = new TcpClient("127.0.0.1", sbsPort);
-                Byte[] data = System.Text.Encoding.ASCII.GetBytes("0");
-                NetworkStream stream = client.GetStream();
-                stream.Write(data, 0, 1);
-                stream.Close();
-                clientTemp.Close();
 
 
-                client.Close();
             }
+            sbsClient.stopThread();
         }
        
     }
