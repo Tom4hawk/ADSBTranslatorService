@@ -19,6 +19,7 @@ namespace AdsbTranslator
         private int rawPort;
         private int receiveTimeout;
         private int aircraftTTL;
+        private string sourceAddress;
         private bool fixCRC;
         private TcpListener rawListener;
         private SbsClients sbsClient;
@@ -49,8 +50,9 @@ namespace AdsbTranslator
                 rawPort = (int)key.GetValue("RAWInput");
                 aircraftTTL = (int)key.GetValue("AircraftTTL");
                 receiveTimeout = (int)key.GetValue("ReceiveTimeout");
+                sourceAddress = (string)key.GetValue("SourceIPAddress");
                 fixCRC = Convert.ToBoolean(key.GetValue("FixCRC"));
-                String dane = "sbsPort: " + sbsPort + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + "." ;
+                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + ".";
                 EventLog.WriteEntry(sSource, "Odczytywanie danych konfiguracyjnych z rejestru powiodło się. " + dane);
                 receiveTimeout *= 1000;
             }
@@ -58,10 +60,11 @@ namespace AdsbTranslator
             {
                 sbsPort = 30003;
                 rawPort = 30001;
+                sourceAddress = "127.0.0.1";
                 receiveTimeout = 120;
                 aircraftTTL = 20;
                 fixCRC = true;
-                EventLog.WriteEntry(sSource, "Odczytywanie danych konfiguracyjnych z rejestru nie powidodło się. Stosowane są domyślne wartości.");
+                EventLog.WriteEntry(sSource, "Odczytywanie danych konfiguracyjnych z rejestru nie powiodło się. Stosowane są domyślne wartości.");
                 receiveTimeout *= 1000;
             }
         }
