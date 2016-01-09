@@ -808,7 +808,8 @@ namespace AdsbTranslator
             }
             else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype == 4)
             {
-                tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,0,0,0,0", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.flight);//{3}=>%s
+                string flightNumber = new string(currentModesMessage.flight);
+                tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
             }
             else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
             {
