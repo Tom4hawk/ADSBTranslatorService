@@ -18,23 +18,21 @@ namespace AdsbTranslator
         //Settings read from registry
         private int sbsPort;
         private int rawPort;
-        private int receiveTimeout;//czy potrzebne
         private int aircraftTTL;
         private string sourceAddress;
         private bool fixCRC;
 
         //Custom Objects
-        private TcpListener rawListener;
         private SbsClients sbsClient;
         private AdsbFormatConverter konwerter;
 
         //thread control
         private volatile bool _shouldWork;
 
-        //Loggin information
+        //Logging information
         private string sSource = "ADSBTranslate";
         private string sLog = "Application";
-        private string sEvent = "";
+
 
         public Server(){
             readSettings();
@@ -57,24 +55,20 @@ namespace AdsbTranslator
                 sbsPort = (int)key.GetValue("SBSOutput");
                 rawPort = (int)key.GetValue("RAWInput");
                 aircraftTTL = (int)key.GetValue("AircraftTTL");
-                receiveTimeout = (int)key.GetValue("ReceiveTimeout");
                 sourceAddress = (string)key.GetValue("SourceIPAddress");
                 fixCRC = Convert.ToBoolean(key.GetValue("FixCRC"));
-                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + ".";
+                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", fixCRC: " + fixCRC + ".";
                 EventLog.WriteEntry(sSource, "Successfully read settings from windows registry. " + dane);//logging information about successful settings retrival
-                receiveTimeout *= 1000;
             }
             catch
             {
                 sbsPort = 30003;
                 rawPort = 30001;
                 sourceAddress = "127.0.0.1";
-                receiveTimeout = 120;
                 aircraftTTL = 20;
                 fixCRC = true;
-                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + ".";
+                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", fixCRC: " + fixCRC + ".";
                 EventLog.WriteEntry(sSource, "Reading settings from registry failed. Using default values (" + dane + ").");
-                receiveTimeout *= 1000;
             }
         }
 
@@ -205,9 +199,8 @@ namespace AdsbTranslator
 
                     broadcastStream.Flush();
                 }
-                catch (Exception ex)
+                catch
                 {
-                    //Console.WriteLine(ex.ToString());
                     //no reason to log client disconnection
                     arr.Add(Item.Key);
                 }
