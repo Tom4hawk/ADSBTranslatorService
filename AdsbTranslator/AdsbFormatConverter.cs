@@ -48,7 +48,7 @@ namespace AdsbTranslator
         private Hashtable icaolist;
         private List<Aircraft> aircraftList;
 
-
+        private bool createID;
         private ModesMessage currentModesMessage;
         String messageSBS;
 
@@ -96,6 +96,8 @@ namespace AdsbTranslator
             }
 
             rawMessage = rawMessage.Remove(0, 1).Remove(rawMessage.Length - 2, 1);//usuwamy * z początku i ; z końca wiadomości
+
+            createID = false;
 
             byte[] msg = new byte[_longMessageBytesSize];
             
@@ -148,6 +150,9 @@ namespace AdsbTranslator
             {
                 if (aircraftList[i].seen < time)
                 {
+                    if (!String.IsNullOrEmpty(messageSBS))
+                        messageSBS += Environment.NewLine;
+
                     messageSBS += string.Format("STA,,,,{0:X6},,,,,", aircraftList[i].addr);
                     aircraftList.RemoveAt(i);
                 }
@@ -343,7 +348,16 @@ namespace AdsbTranslator
             {
                 if (currentModesMessage.metype >= 1 && currentModesMessage.metype <= 4)
                 {
-                    Array.Copy(currentModesMessage.flight, a.flight, 9);
+
+                    string messageFlight = new string(currentModesMessage.flight);
+                    string aircraftFlight = new string(a.flight);
+
+                    int c = string.Compare(messageFlight, aircraftFlight);
+                    if (c != 0)
+                    {
+                        createID = true;
+                        Array.Copy(currentModesMessage.flight, a.flight, 9);
+                    }
                 }
                 else if (currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
                 {
@@ -809,7 +823,15 @@ namespace AdsbTranslator
             else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype == 4)
             {
                 string flightNumber = new string(currentModesMessage.flight);
-                tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
+                if (createID)
+                {
+                    tempRespond = string.Format("ID,,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
+                }
+                else
+                {
+                    tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
+                }
+                
             }
             else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
             {
