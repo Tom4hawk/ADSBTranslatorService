@@ -15,16 +15,23 @@ namespace AdsbTranslator
 {
     class Server
     {
+        //Settings read from registry
         private int sbsPort;
         private int rawPort;
-        private int receiveTimeout;
+        private int receiveTimeout;//czy potrzebne
         private int aircraftTTL;
         private string sourceAddress;
         private bool fixCRC;
+
+        //Custom Objects
         private TcpListener rawListener;
         private SbsClients sbsClient;
         private AdsbFormatConverter konwerter;
+
+        //thread control
         private volatile bool _shouldWork;
+
+        //Loggin information
         private string sSource = "ADSBTranslate";
         private string sLog = "Application";
         private string sEvent = "";
@@ -39,10 +46,11 @@ namespace AdsbTranslator
         public void stopServer(){
             _shouldWork = false;
         }
-        private void readSettings()
+        private void readSettings()//reads settings from windows registry
         {
             if (!EventLog.SourceExists(sSource))
                 EventLog.CreateEventSource(sSource, sLog);
+
             try
             {
                 RegistryKey key = Registry.LocalMachine.OpenSubKey("Software\\ADSBTranslator", true);
@@ -53,7 +61,7 @@ namespace AdsbTranslator
                 sourceAddress = (string)key.GetValue("SourceIPAddress");
                 fixCRC = Convert.ToBoolean(key.GetValue("FixCRC"));
                 String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + ".";
-                EventLog.WriteEntry(sSource, "Odczytywanie danych konfiguracyjnych z rejestru powiodło się. " + dane);
+                EventLog.WriteEntry(sSource, "Successfully read settings from windows registry. " + dane);//logging information about successful settings retrival
                 receiveTimeout *= 1000;
             }
             catch
@@ -64,7 +72,8 @@ namespace AdsbTranslator
                 receiveTimeout = 120;
                 aircraftTTL = 20;
                 fixCRC = true;
-                EventLog.WriteEntry(sSource, "Odczytywanie danych konfiguracyjnych z rejestru nie powiodło się. Stosowane są domyślne wartości.");
+                String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", receiveTimeout: " + receiveTimeout + ", fixCRC: " + fixCRC + ".";
+                EventLog.WriteEntry(sSource, "Reading settings from registry failed. Using default values (" + dane + ").");
                 receiveTimeout *= 1000;
             }
         }
@@ -75,13 +84,13 @@ namespace AdsbTranslator
             sbsClient.newThread();
 
             konwerter = new AdsbFormatConverter(fixCRC, aircraftTTL);
-            /////////////////////////////////////////
+            
             byte[] data = new byte[1024];
             string stringData;
             int recv;
             TcpClient server;
 
-            while (true && _shouldWork)
+            while (_shouldWork)
             {
                 try
                 {
@@ -96,11 +105,11 @@ namespace AdsbTranslator
 
                 NetworkStream ns = server.GetStream();
 
-                while (true)
+                while (_shouldWork)
                 {
                     try
                     {
-                        data = new byte[1024];
+                        data = new byte[1024];//should be more than enough
                         recv = ns.Read(data, 0, data.Length);
                         stringData = Encoding.ASCII.GetString(data, 0, recv);
                         
@@ -119,8 +128,7 @@ namespace AdsbTranslator
                             }
                         }
 
-                        //Console.Write(stringData);
-                        ns.Write(data, 0, 1);
+                        ns.Write(data, 0, 1);//without that there is now way to check connection status  other than waiting forever (might be problematic - forever is a long time to wait)
                     }
                     catch (System.IO.IOException)
                     {
@@ -132,11 +140,10 @@ namespace AdsbTranslator
                     }
                 }
 
-
+                sbsClient.stopThread();
             }
-            sbsClient.stopThread();
         }
-       
+      
     }
 
     class SbsClients
@@ -200,12 +207,13 @@ namespace AdsbTranslator
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.ToString());
+                    //Console.WriteLine(ex.ToString());
+                    //no reason to log client disconnection
                     arr.Add(Item.Key);
                 }
             }
 
-            for (int i = 0; i < arr.Count; ++i)
+            for (int i = 0; i < arr.Count; ++i)//remove disconnected clients
             {
                 clientsList.Remove(arr[i]);
             }
