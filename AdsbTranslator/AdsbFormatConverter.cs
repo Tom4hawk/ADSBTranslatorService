@@ -7,8 +7,6 @@ using System.Threading.Tasks;
 
 namespace AdsbTranslator
 {
-    //modesSendSBSOutput
-    //decodeHexMessage
     class AdsbFormatConverter
     {
         /* Useful consts */
@@ -78,30 +76,26 @@ namespace AdsbTranslator
             };
         }
 
-        /* This function prepare String with mode S message to
-         * 
-         */
+        /* This function prepare hexadecimal string with mode S message to conversion */
         public String convertRaw(string rawMessage)
         {
             messageSBS = string.Empty;
-            //CZYSZCZENIE ICAO LIST i AIRCRAFTLIST, oba zależne od aircraftTTL
-            clearICAOAndAircraftList();
+            clearICAOAndAircraftList();// ICAO and AIRCRAFT lists cleaning - depends on aircraftTTL
             
-            rawMessage = rawMessage.Trim();//pozbywamy się wszelakich białyk znaków, tak na wszelki wypadek
+            rawMessage = rawMessage.Trim();//remove all whitespaces
 
             if (rawMessage.Length > ((_longMessageBytesSize * 2) + 2)|| rawMessage.Length < ((_shortMessageBytesSize * 2) + 2) || rawMessage[0] != '*' || rawMessage[rawMessage.Length - 1] != ';')
             {
-                    /* Odrzucamy wiadomości o błędnym formacie */
-                return messageSBS;
+                return messageSBS; //sorry, wrong format
             }
 
-            rawMessage = rawMessage.Remove(0, 1).Remove(rawMessage.Length - 2, 1);//usuwamy * z początku i ; z końca wiadomości
+            rawMessage = rawMessage.Remove(0, 1).Remove(rawMessage.Length - 2, 1);//removes * and ; from string
 
             createID = false;
 
             byte[] msg = new byte[_longMessageBytesSize];
             
-            for (int i = 0; i < rawMessage.Length; i += 2)//String na tablicę bajtów
+            for (int i = 0; i < rawMessage.Length; i += 2)//convert string with hex values to byte array
             {
                 try
                 {
@@ -111,20 +105,13 @@ namespace AdsbTranslator
                 }
                 catch (Exception)
                 {
-                    //jakieś śmieci zamiast szesnastkowych
-                    return messageSBS;
+                    return messageSBS; //sorry, there was something wrong with hex values in the message
                 }   
             }
 
             decodeModesMessage(msg);
-            if (!String.IsNullOrEmpty(messageSBS))
-            {
-                return messageSBS;
-            }
-            else
-            {
-                return messageSBS;
-            }
+
+            return messageSBS;
         }
 
         private void clearICAOAndAircraftList()
@@ -163,10 +150,10 @@ namespace AdsbTranslator
         {
             currentModesMessage = new ModesMessage();
 
-            /* Nie chcemy pracować na oryginalnej wiadomości*/
+            /* Let'e work on copy*/
             Array.Copy(msg, currentModesMessage.msg, _longMessageBytesSize);
 
-            /* Typ i rozmiar wiadomości */
+            /* MSG type and size */
             currentModesMessage.msgtype = msg[0] >> 3; /* Downlink Format */
             modesMessageLenByType();
 
@@ -228,7 +215,7 @@ namespace AdsbTranslator
             {
                 /* If this is DF 11 or DF 17 and the checksum was ok,
                  * we can add this address to the list of recently seen
-                 * addresses. */
+                 * addresses */
                 if (currentModesMessage.crcok && currentModesMessage.errorbit == -1)
                 {
                     UInt32 addr = (UInt32)((currentModesMessage.aa1 << 16) | (currentModesMessage.aa2 << 8) | currentModesMessage.aa3);
@@ -284,8 +271,7 @@ namespace AdsbTranslator
                         currentModesMessage.vert_rate_source = (msg[8] & 0x10) >> 4;
                         currentModesMessage.vert_rate_sign = (msg[8] & 0x8) >> 3;
                         currentModesMessage.vert_rate = ((msg[8] & 7) << 6) | ((msg[9] & 0xfc) >> 2);
-                        /* Compute velocity and angle from the two speed
-                        * components. */
+                        /* Compute velocity and angle from the two speed components */
                         currentModesMessage.velocity = (int)Math.Round(Math.Sqrt(currentModesMessage.ns_velocity * currentModesMessage.ns_velocity + currentModesMessage.ew_velocity * currentModesMessage.ew_velocity));
                         if (currentModesMessage.velocity != 0)
                         {
@@ -375,8 +361,7 @@ namespace AdsbTranslator
                         a.even_cprlon = currentModesMessage.raw_longitude;
                         a.even_cprtime = (int)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;//(DateTime.UtcNow - new DateTime(2015, 1, 1)).TotalMilliseconds;
                     }
-                    /* If the two data is less than 10 seconds apart, compute
-                     * the position. */
+                    /* If the two data is less than 10 seconds apart, compute the position */
                     if (Math.Abs(a.even_cprtime - a.odd_cprtime) <= 10)
                     {
                         decodeCPR(a);
@@ -494,7 +479,7 @@ namespace AdsbTranslator
             double lon0 = a.even_cprlon;
             double lon1 = a.odd_cprlon;
 
-            int j = (int)Math.Floor(((59 * lat0 - 60 * lat1) / 131072) + 0.5);//WTF??
+            int j = (int)Math.Floor(((59 * lat0 - 60 * lat1) / 131072) + 0.5);
             double rlat0 = AirDlat0 * (cprModFunction(j, 60) + lat0 / 131072);
             double rlat1 = AirDlat1 * (cprModFunction(j, 59) + lat1 / 131072);
     
@@ -632,7 +617,7 @@ namespace AdsbTranslator
         /* Decode the 13 bit AC altitude field (in DF 20 and others).
          * Returns the altitude, and set 'unit' to either MODES_UNIT_METERS
          * or MDOES_UNIT_FEETS.*/
-        private void decodeAC13Field()//DOKŁADNIE SPRAWDZIć dopisać dwa ify
+        private void decodeAC13Field()
         {
             int m_bit = currentModesMessage.msg[3] & (1 << 6);
             int q_bit = currentModesMessage.msg[3] & (1 << 4);
@@ -724,17 +709,14 @@ namespace AdsbTranslator
             currentModesMessage.unit = _unitFeet;
             if (q_bit != 0)
             {
-                /* N is the 11 bit integer resulting from the removal of bit
-                * Q */
+                /* N is the 11 bit integer resulting from the removal of bit Q */
                 
                 int n = ((currentModesMessage.msg[5] >> 1) << 4) | ((currentModesMessage.msg[6] & 0xF0) >> 4);
-                /* The final altitude is due to the resulting number multiplied
-                * by 25, minus 1000. */
+                /* The final altitude is due to the resulting number multiplied by 25, minus 1000 */
                 currentModesMessage.altitude = n * 25 - 1000;
             }
             else
-            {//nie powinno mieć miejsca w europie
-                // Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
+            { //Not in Europe
                 int n = ((currentModesMessage.msg[5] & 0x0FC0) << 1) | (currentModesMessage.msg[5] & 0x003F);
                 n = ModeAToModeC(decodeID13Field(n));
                 if (n < -12) { n = 0; }
@@ -747,13 +729,15 @@ namespace AdsbTranslator
             byte[] aux = new byte[_longMessageBytesSize];
             int msgtype = currentModesMessage.msgtype;
             int msgbits = currentModesMessage.msgbits;
-            if (msgtype == 0 || /* Short air surveillance */
-            msgtype == 4 || /* Surveillance, altitude reply */
-            msgtype == 5 || /* Surveillance, identity reply */
-            msgtype == 16 || /* Long Air-Air survillance */
-            msgtype == 20 || /* Comm-A, altitude request */
-            msgtype == 21 || /* Comm-A, identity request */
-            msgtype == 24) /* Comm-C ELM */
+            
+            /* 0 - Short air surveillance;
+             * 4- Surveillance, altitude reply;
+             * 5 - Surveillance, identity reply;
+             * 16 - Long Air-Air survillance;
+             * 20 - Comm-A, altitude request;
+             * 21 - Comm-A, identity request;
+             * 24 - Comm-C ELM */
+            if (msgtype == 0 || msgtype == 4 || msgtype == 5 || msgtype == 16 || msgtype == 20 || msgtype == 21 || msgtype == 24) 
             {
                 UInt32 addr;
                 UInt32 crc;
@@ -786,9 +770,6 @@ namespace AdsbTranslator
         internal void convertToSBS(Aircraft a)
         {
             String tempRespond="";
-            /*DateTime currentTime = DateTime.Now; Jakby na datę naszło
-            String dateStr = currentTime.ToString("yyyy/MM/dd,HH:mm:ss.fff,yyyy/MM/dd,HH:mm:ss.fff").Replace("-", "/");
-            Console.WriteLine(dateStr);*/
             int emergency = 0, ground = 0, alert = 0, spi = 0;
 
             if (currentModesMessage.msgtype == 4 || currentModesMessage.msgtype == 5 || currentModesMessage.msgtype == 21)
@@ -847,7 +828,6 @@ namespace AdsbTranslator
             else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype == 19 && currentModesMessage.mesub == 1)
             {
                 int vr = (currentModesMessage.vert_rate_sign == 0 ? 1 : -1) * (currentModesMessage.vert_rate - 1) * 64;
-                //tempRespond = string.Format("MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0", mm.aa1, mm.aa2, mm.aa3, mm.velocity, mm.heading, vr);
                 tempRespond = string.Format("MSG,4,,,{0:X2}{1:X2}{2:X2},,,,,,,,{3:D},{4:D},,,{5:D},,0,0,0,0", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.velocity, currentModesMessage.heading, vr);
             }
             else if (currentModesMessage.msgtype == 21)

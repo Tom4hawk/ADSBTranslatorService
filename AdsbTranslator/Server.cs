@@ -26,7 +26,7 @@ namespace AdsbTranslator
         private SbsClients sbsClient;
         private AdsbFormatConverter konwerter;
 
-        //thread control
+        //Thread control
         private volatile bool _shouldWork;
 
         //Logging information
@@ -68,7 +68,7 @@ namespace AdsbTranslator
                 aircraftTTL = 20;
                 fixCRC = true;
                 String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", fixCRC: " + fixCRC + ".";
-                EventLog.WriteEntry(sSource, "Reading settings from registry failed. Using default values (" + dane + ").");
+                EventLog.WriteEntry(sSource, "Reading settings from registry failed. Using default values (" + dane + ").");//Logging information about unsuccessful unsuccessful
             }
         }
 
@@ -79,7 +79,7 @@ namespace AdsbTranslator
 
             konwerter = new AdsbFormatConverter(fixCRC, aircraftTTL);
             
-            byte[] data = new byte[1024];
+            byte[] data = new byte[11200];//can take up to 800 long messages at once
             string stringData;
             int recv;
             TcpClient server;
@@ -103,10 +103,14 @@ namespace AdsbTranslator
                 {
                     try
                     {
-                        data = new byte[1024];//should be more than enough
                         recv = ns.Read(data, 0, data.Length);
                         stringData = Encoding.ASCII.GetString(data, 0, recv);
-                        
+                        //DEBUG
+                        //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"C:\adsbtranslatorlog.txt", true))
+                        //{
+                        //   file.WriteLine(recv);
+                        //}
+                        //DEBUG
                         Regex r = new Regex(@"\*(.+?)\;");
                         MatchCollection mc = r.Matches(stringData);
 
