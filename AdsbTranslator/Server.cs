@@ -65,8 +65,8 @@ namespace AdsbTranslator
                 sbsPort = 30003;
                 rawPort = 30001;
                 sourceAddress = "127.0.0.1";
-                aircraftTTL = 20;
-                fixCRC = true;
+                aircraftTTL = 120;
+                fixCRC = false;
                 String dane = "sbsPort: " + sbsPort + ", Source IP Address: " + sourceAddress + ", rawPort: " + rawPort + ", aircraftTTL: " + aircraftTTL + ", fixCRC: " + fixCRC + ".";
                 EventLog.WriteEntry(sSource, "Reading settings from registry failed. Using default values (" + dane + ").");//Logging information about unsuccessful unsuccessful
             }
@@ -105,12 +105,7 @@ namespace AdsbTranslator
                     {
                         recv = ns.Read(data, 0, data.Length);
                         stringData = Encoding.ASCII.GetString(data, 0, recv);
-                        //DEBUG
-                        //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"C:\adsbtranslatorlog.txt", true))
-                        //{
-                        //   file.WriteLine(recv);
-                        //}
-                        //DEBUG
+
                         Regex r = new Regex(@"\*(.+?)\;");
                         MatchCollection mc = r.Matches(stringData);
 
@@ -175,10 +170,10 @@ namespace AdsbTranslator
 
             while (_shouldWork)
             {
-                clientSocket = serverSocket.AcceptTcpClient();
+                    clientSocket = serverSocket.AcceptTcpClient();
 
-                string uid = Guid.NewGuid().ToString();
-                clientsList.Add(uid, clientSocket);
+                    string uid = Guid.NewGuid().ToString();
+                    clientsList.Add(uid, clientSocket);
             }
 
             clientSocket.Close();

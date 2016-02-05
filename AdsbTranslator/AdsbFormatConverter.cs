@@ -47,7 +47,7 @@ namespace AdsbTranslator
         private List<Aircraft> aircraftList;
 
         private bool createID;
-        private ModesMessage currentModesMessage;
+        private DecodedMessage currentModesMessage;
         String messageSBS;
 
         public AdsbFormatConverter(bool fix1Error = false, int aircraft_TTL = 20, bool debug = false)
@@ -135,7 +135,7 @@ namespace AdsbTranslator
             }
             for (int i = aircraftList.Count-1; i >= 0; i--)
             {
-                if (aircraftList[i].seen < time)
+                if (aircraftList[i].lastSeen < time)
                 {
                     if (!String.IsNullOrEmpty(messageSBS))
                         messageSBS += Environment.NewLine;
@@ -148,26 +148,26 @@ namespace AdsbTranslator
 
         private void decodeModesMessage(byte[] msg)
         {
-            currentModesMessage = new ModesMessage();
+            currentModesMessage = new DecodedMessage();
 
-            /* Let'e work on copy*/
-            Array.Copy(msg, currentModesMessage.msg, _longMessageBytesSize);
+            /* Let's work on copy*/
+            Array.Copy(msg, currentModesMessage.message, _longMessageBytesSize);
 
             /* MSG type and size */
-            currentModesMessage.msgtype = msg[0] >> 3; /* Downlink Format */
+            currentModesMessage.downlinkFormat = msg[0] >> 3; /* Downlink Format */
             modesMessageLenByType();
 
             /* CRC */
-            currentModesMessage.crc = ((UInt32)msg[(currentModesMessage.msgbits / 8) - 3] << 16) | ((UInt32)msg[(currentModesMessage.msgbits / 8) - 2] << 8) | (UInt32)msg[(currentModesMessage.msgbits / 8) - 1];//trzy ostatnie bity to CRC
+            currentModesMessage.messageCrc = ((UInt32)msg[(currentModesMessage.msgSize / 8) - 3] << 16) | ((UInt32)msg[(currentModesMessage.msgSize / 8) - 2] << 8) | (UInt32)msg[(currentModesMessage.msgSize / 8) - 1];//trzy ostatnie bity to CRC
             UInt32 crc2 = computeChecksum();
 
             /* Fixing errors in DF11, DF17 */
-            currentModesMessage.errorbit = -1;//nothing corrected yet
-            currentModesMessage.crcok = (crc2 == currentModesMessage.crc);
+            currentModesMessage.correctedBit = -1;//nothing corrected yet
+            currentModesMessage.validCrc = (crc2 == currentModesMessage.messageCrc);
 
-            if (!currentModesMessage.crcok)
+            if (!currentModesMessage.validCrc)
             {
-                if (currentModesMessage.msgtype == 11 || currentModesMessage.msgtype == 17){
+                if (currentModesMessage.downlinkFormat == 11 || currentModesMessage.downlinkFormat == 17){
                     if (fixSingleBitError){
                         fixSingleBitErrors();
                     }
@@ -175,28 +175,26 @@ namespace AdsbTranslator
             }
 
             /* Responder capabilities. */
-            currentModesMessage.ca = msg[0] & 7;
+            currentModesMessage.responderCapabilities = msg[0] & 7;
 
             /* ICAO address */
-            currentModesMessage.aa1 = msg[1];
-            currentModesMessage.aa2 = msg[2];
-            currentModesMessage.aa3 = msg[3];
+            currentModesMessage.icaoAddrPartOne = msg[1];
+            currentModesMessage.icaoAddrPartTwo = msg[2];
+            currentModesMessage.icaoAddrPartThree = msg[3];
 
             /* DF 17 type (assuming this is a DF17, otherwise not used) */
-            currentModesMessage.metype = msg[4] >> 3; /* Extended squitter message type. */
-            currentModesMessage.mesub = msg[4] & 7; /* Extended squitter message subtype. */
+            currentModesMessage.esMessageType = msg[4] >> 3; /* Extended squitter message type. */
+            currentModesMessage.esMessageSubType = msg[4] & 7; /* Extended squitter message subtype. */
 
             /* Fields for DF4,5,20,21 */
-            currentModesMessage.fs = msg[0] & 7; /* Flight status for DF4,5,20,21 */
-            currentModesMessage.dr = msg[1] >> 3 & 31; /* Request extraction of downlink request. */
-            currentModesMessage.um = ((msg[1] & 7) << 3) | msg[2] >> 5;/* Request extraction of downlink request. */
+            currentModesMessage.flightStatus = msg[0] & 7; /* Flight status for DF4,5,20,21 */
 
             calculateSquawk();
 
 
              /* DF 11 & 17: try to populate our ICAO addresses whitelist.
               * DFs with an AP field (xored addr and crc), try to decode it. */
-            if (currentModesMessage.msgtype != 11 && currentModesMessage.msgtype != 17)
+            if (currentModesMessage.downlinkFormat != 11 && currentModesMessage.downlinkFormat != 17)
             {
                 /* Check if we can check the checksum for the Downlink Formats where
                 * the checksum is xored with the aircraft ICAO address. We try to
@@ -204,11 +202,11 @@ namespace AdsbTranslator
                 if (bruteForceAP())
                 {
                     /* We recovered the message, mark the checksum as valid. */
-                    currentModesMessage.crcok = true;
+                    currentModesMessage.validCrc = true;
                 }
                 else
                 {
-                    currentModesMessage.crcok = false;
+                    currentModesMessage.validCrc = false;
                 }
             }
             else
@@ -216,90 +214,86 @@ namespace AdsbTranslator
                 /* If this is DF 11 or DF 17 and the checksum was ok,
                  * we can add this address to the list of recently seen
                  * addresses */
-                if (currentModesMessage.crcok && currentModesMessage.errorbit == -1)
+                if (currentModesMessage.validCrc && currentModesMessage.correctedBit == -1)
                 {
-                    UInt32 addr = (UInt32)((currentModesMessage.aa1 << 16) | (currentModesMessage.aa2 << 8) | currentModesMessage.aa3);
+                    UInt32 addr = (UInt32)((currentModesMessage.icaoAddrPartOne << 16) | (currentModesMessage.icaoAddrPartTwo << 8) | currentModesMessage.icaoAddrPartThree);
 
                     icaolist[addr] = (int)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
                 }
             }
 
             /* Decode 13 bit altitude for DF0, DF4, DF16, DF20 */
-            if (currentModesMessage.msgtype == 0 || currentModesMessage.msgtype == 4 || currentModesMessage.msgtype == 16 || currentModesMessage.msgtype == 20)
+            if (currentModesMessage.downlinkFormat == 0 || currentModesMessage.downlinkFormat == 4 || currentModesMessage.downlinkFormat == 16 || currentModesMessage.downlinkFormat == 20)
             {
                 decodeAC13Field();
             }
             /////////////////////////////////////////////////////////////////////////////////
             String ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
             /* Decode extended squitter specific stuff. */
-            if (currentModesMessage.msgtype == 17)
+            if (currentModesMessage.downlinkFormat == 17)
             {
                 /* Decode the extended squitter message. */
-                if (currentModesMessage.metype >= 1 && currentModesMessage.metype <= 4)
+                if (currentModesMessage.esMessageType >= 1 && currentModesMessage.esMessageType <= 4)
                 {
                     /* Aircraft Identification and Category */
-                    currentModesMessage.aircraft_type = currentModesMessage.metype - 1;
-                    currentModesMessage.flight[0] = ais_charset[msg[5] >> 2];
-                    currentModesMessage.flight[1] = ais_charset[((msg[5] & 3) << 4) | (msg[6] >> 4)];
-                    currentModesMessage.flight[2] = ais_charset[((msg[6] & 15) << 2) | (msg[7] >> 6)];
-                    currentModesMessage.flight[3] = ais_charset[msg[7] & 63];
-                    currentModesMessage.flight[4] = ais_charset[msg[8] >> 2];
-                    currentModesMessage.flight[5] = ais_charset[((msg[8] & 3) << 4) | (msg[9] >> 4)];
-                    currentModesMessage.flight[6] = ais_charset[((msg[9] & 15) << 2) | (msg[10] >> 6)];
-                    currentModesMessage.flight[7] = ais_charset[msg[10] & 63];
-                    currentModesMessage.flight[8] = '\0';
+                    currentModesMessage.flightNumber[0] = ais_charset[msg[5] >> 2];
+                    currentModesMessage.flightNumber[1] = ais_charset[((msg[5] & 3) << 4) | (msg[6] >> 4)];
+                    currentModesMessage.flightNumber[2] = ais_charset[((msg[6] & 15) << 2) | (msg[7] >> 6)];
+                    currentModesMessage.flightNumber[3] = ais_charset[msg[7] & 63];
+                    currentModesMessage.flightNumber[4] = ais_charset[msg[8] >> 2];
+                    currentModesMessage.flightNumber[5] = ais_charset[((msg[8] & 3) << 4) | (msg[9] >> 4)];
+                    currentModesMessage.flightNumber[6] = ais_charset[((msg[9] & 15) << 2) | (msg[10] >> 6)];
+                    currentModesMessage.flightNumber[7] = ais_charset[msg[10] & 63];
+                    currentModesMessage.flightNumber[8] = '\0';
                 }
-                else if (currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
+                else if (currentModesMessage.esMessageType >= 9 && currentModesMessage.esMessageType <= 18)
                 {
                     /* Airborne position Message */
-                    currentModesMessage.fflag = msg[6] & (1 << 2);
-                    currentModesMessage.tflag = msg[6] & (1 << 3);
+                    currentModesMessage.parityFlag = msg[6] & (1 << 2);
                     decodeAC12Field();
 
-                    currentModesMessage.raw_latitude = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
-                    currentModesMessage.raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];
+                    currentModesMessage.rawLatitude = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+                    currentModesMessage.rawLongitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];
                 }
-                else if (currentModesMessage.metype == 19 && currentModesMessage.mesub >= 1 && currentModesMessage.mesub <= 4)
+                else if (currentModesMessage.esMessageType == 19 && currentModesMessage.esMessageSubType >= 1 && currentModesMessage.esMessageSubType <= 4)
                 {
                     /* Airborne Velocity Message */
-                    if (currentModesMessage.mesub == 1 || currentModesMessage.mesub == 2)
+                    if (currentModesMessage.esMessageSubType == 1 || currentModesMessage.esMessageSubType == 2)
                     {
-                        currentModesMessage.ew_dir = (msg[5] & 4) >> 2;
-                        currentModesMessage.ew_velocity = ((msg[5] & 3) << 8) | msg[6];
-                        currentModesMessage.ns_dir = (msg[7] & 0x80) >> 7;
-                        currentModesMessage.ns_velocity = ((msg[7] & 0x7f) << 3) | ((msg[8] & 0xe0) >> 5);
-                        currentModesMessage.vert_rate_source = (msg[8] & 0x10) >> 4;
-                        currentModesMessage.vert_rate_sign = (msg[8] & 0x8) >> 3;
-                        currentModesMessage.vert_rate = ((msg[8] & 7) << 6) | ((msg[9] & 0xfc) >> 2);
+                        currentModesMessage.ewDirection = (msg[5] & 4) >> 2;
+                        currentModesMessage.ewVelocity = ((msg[5] & 3) << 8) | msg[6];
+                        currentModesMessage.nsDirection = (msg[7] & 0x80) >> 7;
+                        currentModesMessage.nsVelocity = ((msg[7] & 0x7f) << 3) | ((msg[8] & 0xe0) >> 5);
+                        currentModesMessage.verticalRateSign = (msg[8] & 0x8) >> 3;
+                        currentModesMessage.verticalRate = ((msg[8] & 7) << 6) | ((msg[9] & 0xfc) >> 2);
                         /* Compute velocity and angle from the two speed components */
-                        currentModesMessage.velocity = (int)Math.Round(Math.Sqrt(currentModesMessage.ns_velocity * currentModesMessage.ns_velocity + currentModesMessage.ew_velocity * currentModesMessage.ew_velocity));
+                        currentModesMessage.velocity = (int)Math.Round(Math.Sqrt(currentModesMessage.nsVelocity * currentModesMessage.nsVelocity + currentModesMessage.ewVelocity * currentModesMessage.ewVelocity));
                         if (currentModesMessage.velocity != 0)
                         {
-                            int ewv = currentModesMessage.ew_velocity;
-                            int nsv = currentModesMessage.ns_velocity;
+                            int ewv = currentModesMessage.ewVelocity;
+                            int nsv = currentModesMessage.nsVelocity;
                             double heading;
-                            if (currentModesMessage.ew_dir != 0) ewv *= -1;
-                            if (currentModesMessage.ns_dir != 0) nsv *= -1;
+                            if (currentModesMessage.ewDirection != 0) ewv *= -1;
+                            if (currentModesMessage.nsDirection != 0) nsv *= -1;
                             heading = Math.Atan2(ewv, nsv);
                             /* Convert to degrees. */
-                            currentModesMessage.heading = (int)(heading * 360 / (Math.PI * 2));
+                            currentModesMessage.track = (int)(heading * 360 / (Math.PI * 2));
                             /* We don't want negative values but a 0-360 scale. */
-                            if (currentModesMessage.heading < 0) currentModesMessage.heading += 360;
+                            if (currentModesMessage.track < 0) currentModesMessage.track += 360;
                         }
                         else
                         {
-                            currentModesMessage.heading = 0;
+                            currentModesMessage.track = 0;
                         }
                     }
-                    else if (currentModesMessage.mesub == 3 || currentModesMessage.mesub == 4)
+                    else if (currentModesMessage.esMessageSubType == 3 || currentModesMessage.esMessageSubType == 4)
                     {
-                        currentModesMessage.heading_is_valid = msg[5] & (1 << 2);
-                        currentModesMessage.heading = (int)((360.0 / 128) * (((msg[5] & 3) << 5) | (msg[6] >> 3)));
+                        currentModesMessage.track = (int)((360.0 / 128) * (((msg[5] & 3) << 5) | (msg[6] >> 3)));
                     }
                 }
             }
 
-            if (currentModesMessage.crcok)
+            if (currentModesMessage.validCrc)
             {
                 Aircraft a = interactiveReceiveData();
                 convertToSBS(a);
@@ -313,7 +307,7 @@ namespace AdsbTranslator
             Boolean newAircraft = false;
 
             
-            addr = (UInt32)((currentModesMessage.aa1 << 16) | (currentModesMessage.aa2 << 8) | currentModesMessage.aa3);
+            addr = (UInt32)((currentModesMessage.icaoAddrPartOne << 16) | (currentModesMessage.icaoAddrPartTwo << 8) | currentModesMessage.icaoAddrPartThree);
             a = interactiveFindAircraft(addr);
 
             if (a == null)
@@ -324,55 +318,41 @@ namespace AdsbTranslator
                 newAircraft = true;
             }
 
-            a.seen = (uint)((DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds);
+            a.lastSeen = (uint)((DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds);
 
-            if (currentModesMessage.msgtype == 0 || currentModesMessage.msgtype == 4 || currentModesMessage.msgtype == 20)
+            if (currentModesMessage.downlinkFormat == 17)
             {
-                a.altitude = currentModesMessage.altitude;
-            }
-            else if (currentModesMessage.msgtype == 17)
-            {
-                if (currentModesMessage.metype >= 1 && currentModesMessage.metype <= 4)
+                if (currentModesMessage.esMessageType >= 1 && currentModesMessage.esMessageType <= 4)
                 {
 
-                    string messageFlight = new string(currentModesMessage.flight);
+                    string messageFlight = new string(currentModesMessage.flightNumber);
                     string aircraftFlight = new string(a.flight);
 
                     int c = string.Compare(messageFlight, aircraftFlight);
                     if (c != 0)
                     {
                         createID = true;
-                        Array.Copy(currentModesMessage.flight, a.flight, 9);
+                        Array.Copy(currentModesMessage.flightNumber, a.flight, 9);
                     }
                 }
-                else if (currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
+                else if (currentModesMessage.esMessageType >= 9 && currentModesMessage.esMessageType <= 18)
                 {
-                    a.altitude = currentModesMessage.altitude;
-
-                    if (currentModesMessage.fflag != 0)
+                    if (currentModesMessage.parityFlag != 0)
                     {
-                        a.odd_cprlat = currentModesMessage.raw_latitude;
-                        a.odd_cprlon = currentModesMessage.raw_longitude;
-                        a.odd_cprtime = (int)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;// (DateTime.UtcNow - new DateTime(2015, 1, 1)).TotalMilliseconds;
+                        a.oddFrameCprLatitude = currentModesMessage.rawLatitude;
+                        a.oddFrameCprLongitude = currentModesMessage.rawLongitude;
+                        a.oddFrameCprTime = (UInt32)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;// (DateTime.UtcNow - new DateTime(2015, 1, 1)).TotalMilliseconds;
                     }
                     else
                     {
-                        a.even_cprlat = currentModesMessage.raw_latitude;
-                        a.even_cprlon = currentModesMessage.raw_longitude;
-                        a.even_cprtime = (int)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;//(DateTime.UtcNow - new DateTime(2015, 1, 1)).TotalMilliseconds;
+                        a.evenFrameCprLatitude = currentModesMessage.rawLatitude;
+                        a.evenFrameCprLongitude = currentModesMessage.rawLongitude;
+                        a.evenFrameCprTime = (UInt32)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;//(DateTime.UtcNow - new DateTime(2015, 1, 1)).TotalMilliseconds;
                     }
                     /* If the two data is less than 10 seconds apart, compute the position */
-                    if (Math.Abs(a.even_cprtime - a.odd_cprtime) <= 10)
+                    if (Math.Abs(a.evenFrameCprTime - a.oddFrameCprTime) <= 10)
                     {
                         decodeCPR(a);
-                    }
-                }
-                else if (currentModesMessage.metype == 19)
-                {
-                    if (currentModesMessage.mesub == 1 || currentModesMessage.mesub == 2)
-                    {
-                        a.speed = currentModesMessage.velocity;
-                        a.track = currentModesMessage.heading;
                     }
                 }
             }
@@ -381,7 +361,7 @@ namespace AdsbTranslator
                 if (!String.IsNullOrEmpty(messageSBS))
                     messageSBS += Environment.NewLine;
 
-                messageSBS += string.Format("AIR,,,,{0:X2}{1:X2}{2:X2},,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3);
+                messageSBS += string.Format("AIR,,,,{0:X2}{1:X2}{2:X2},,,,,", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree);
             }
             return a;
 
@@ -474,10 +454,13 @@ namespace AdsbTranslator
         {
             const double AirDlat0 = 360.0 / 60;
             const double AirDlat1 = 360.0 / 59;
-            double lat0 = a.even_cprlat;
-            double lat1 = a.odd_cprlat;
-            double lon0 = a.even_cprlon;
-            double lon1 = a.odd_cprlon;
+            double lat0 = a.evenFrameCprLatitude;
+            double lat1 = a.oddFrameCprLatitude;
+            double lon0 = a.evenFrameCprLongitude;
+            double lon1 = a.oddFrameCprLongitude;
+
+            double tempLatitude;
+            double tempLongitude;
 
             int j = (int)Math.Floor(((59 * lat0 - 60 * lat1) / 131072) + 0.5);
             double rlat0 = AirDlat0 * (cprModFunction(j, 60) + lat0 / 131072);
@@ -490,14 +473,14 @@ namespace AdsbTranslator
             if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
 
             /* Compute ni and the longitude index m */
-            if (a.even_cprtime > a.odd_cprtime)
+            if (a.evenFrameCprTime > a.oddFrameCprTime)
             {
                 /* Use even packet. */
                 int ni = cprNFunction(rlat0, 0);
                 int m = (int)Math.Floor((((lon0 * (cprNLFunction(rlat0) - 1)) -
                 (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
-                a.lon = cprDlonFunction(rlat0, 0) * (cprModFunction(m, ni) + lon0 / 131072);
-                a.lat = rlat0;
+                tempLongitude = cprDlonFunction(rlat0, 0) * (cprModFunction(m, ni) + lon0 / 131072);
+                tempLatitude = rlat0;
             }
             else
             {
@@ -505,20 +488,20 @@ namespace AdsbTranslator
                 int ni = cprNFunction(rlat1, 1);
                 int m = (int)Math.Floor((((lon0 * (cprNLFunction(rlat1) - 1)) -
                 (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
-                a.lon = cprDlonFunction(rlat1, 1) * (cprModFunction(m, ni) + lon1 / 131072);
-                a.lat = rlat1;
+                tempLongitude = cprDlonFunction(rlat1, 1) * (cprModFunction(m, ni) + lon1 / 131072);
+                tempLatitude = rlat1;
             }
-            if (a.lon > 180) a.lon -= 360;
+            if (tempLongitude > 180) tempLongitude -= 360;
 
-            currentModesMessage.lon = a.lon;
-            currentModesMessage.lat = a.lat;
+            currentModesMessage.longitude = tempLongitude;
+            currentModesMessage.latitude = tempLatitude;
         }
 
         private Aircraft interactiveCreateAircraft(uint addr)
         {
             Aircraft a = new Aircraft();
             a.addr = addr;
-            a.seen = (uint)((DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds);
+            a.lastSeen = (uint)((DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds);
 
             return a;
         }
@@ -539,25 +522,25 @@ namespace AdsbTranslator
 
         private void modesMessageLenByType()
         {
-            if (currentModesMessage.msgtype == 16 || currentModesMessage.msgtype == 17 || currentModesMessage.msgtype == 19 || currentModesMessage.msgtype == 20 || currentModesMessage.msgtype == 21)
-                currentModesMessage.msgbits = _longMessageBitsSize;//112;
+            if (currentModesMessage.downlinkFormat == 16 || currentModesMessage.downlinkFormat == 17 || currentModesMessage.downlinkFormat == 19 || currentModesMessage.downlinkFormat == 20 || currentModesMessage.downlinkFormat == 21)
+                currentModesMessage.msgSize = _longMessageBitsSize;//112;
             else
-                currentModesMessage.msgbits = _shortMessageBitsSize;//56;
+                currentModesMessage.msgSize = _shortMessageBitsSize;//56;
         }
 
         private UInt32 computeChecksum()
         {
-            return computeChecksum(currentModesMessage.msg);
+            return computeChecksum(currentModesMessage.message);
         }
 
         /* Return 24bit checksum */
         private UInt32 computeChecksum(byte[] array)
         {
             UInt32 crc = 0;
-            int offset = (currentModesMessage.msgbits == 112) ? 0 : (112 - 56);
+            int offset = (currentModesMessage.msgSize == 112) ? 0 : (112 - 56);
             int j;
 
-            for (j = 0; j < currentModesMessage.msgbits; j++)
+            for (j = 0; j < currentModesMessage.msgSize; j++)
             {
                 int specByte = j / 8;
                 int bit = j % 8;
@@ -577,41 +560,41 @@ namespace AdsbTranslator
             int j;
             byte[] aux = new byte[_longMessageBytesSize];
 
-            for (j = 0; j < currentModesMessage.msgbits; j++) {
+            for (j = 0; j < currentModesMessage.msgSize; j++) {
                 int currentByte = j/8;
                 byte bitmask = (byte)(1 << (7-(j%8)));
                 UInt32 crc1, crc2;
 
-                Array.Copy(currentModesMessage.msg, aux, _longMessageBytesSize);
+                Array.Copy(currentModesMessage.message, aux, _longMessageBytesSize);
 
                 aux[currentByte] ^= bitmask; /* Flip j-th bit. */
-                crc1 = ((UInt32)aux[(currentModesMessage.msgbits / 8) - 3] << 16) | ((UInt32)aux[(currentModesMessage.msgbits / 8) - 2] << 8) | (UInt32)aux[(currentModesMessage.msgbits / 8) - 1];
+                crc1 = ((UInt32)aux[(currentModesMessage.msgSize / 8) - 3] << 16) | ((UInt32)aux[(currentModesMessage.msgSize / 8) - 2] << 8) | (UInt32)aux[(currentModesMessage.msgSize / 8) - 1];
                 crc2 = computeChecksum(aux);
             
                 if (crc1 == crc2) {
                     /* The error is fixed. Overwrite the original buffer with
                     * the corrected sequence, and returns the error bit
                     * position. */
-                    Array.Copy(aux, currentModesMessage.msg, _longMessageBytesSize);
-                    currentModesMessage.errorbit = j;
-                    currentModesMessage.crcok = true;
-                    currentModesMessage.crc = crc1;
+                    Array.Copy(aux, currentModesMessage.message, _longMessageBytesSize);
+                    currentModesMessage.correctedBit = j;
+                    currentModesMessage.validCrc = true;
+                    currentModesMessage.messageCrc = crc1;
 
                     return;
                 }
             }
 
-            currentModesMessage.errorbit = -1; //nothing corrected
+            currentModesMessage.correctedBit = -1; //nothing corrected
         }
 
         private void calculateSquawk()
         {
             int a, b, c, d;
-            a = ((currentModesMessage.msg[3] & 0x80) >> 5) | ((currentModesMessage.msg[2] & 0x02) >> 0) | ((currentModesMessage.msg[2] & 0x08) >> 3);
-            b = ((currentModesMessage.msg[3] & 0x02) << 1) | ((currentModesMessage.msg[3] & 0x08) >> 2) | ((currentModesMessage.msg[3] & 0x20) >> 5);
-            c = ((currentModesMessage.msg[2] & 0x01) << 2) | ((currentModesMessage.msg[2] & 0x04) >> 1) | ((currentModesMessage.msg[2] & 0x10) >> 4);
-            d = ((currentModesMessage.msg[3] & 0x01) << 2) | ((currentModesMessage.msg[3] & 0x04) >> 1) | ((currentModesMessage.msg[3] & 0x10) >> 4);
-            currentModesMessage.identity = a * 1000 + b * 100 + c * 10 + d;
+            a = ((currentModesMessage.message[3] & 0x80) >> 5) | ((currentModesMessage.message[2] & 0x02) >> 0) | ((currentModesMessage.message[2] & 0x08) >> 3);
+            b = ((currentModesMessage.message[3] & 0x02) << 1) | ((currentModesMessage.message[3] & 0x08) >> 2) | ((currentModesMessage.message[3] & 0x20) >> 5);
+            c = ((currentModesMessage.message[2] & 0x01) << 2) | ((currentModesMessage.message[2] & 0x04) >> 1) | ((currentModesMessage.message[2] & 0x10) >> 4);
+            d = ((currentModesMessage.message[3] & 0x01) << 2) | ((currentModesMessage.message[3] & 0x04) >> 1) | ((currentModesMessage.message[3] & 0x10) >> 4);
+            currentModesMessage.squawkIdentity = a * 1000 + b * 100 + c * 10 + d;
         }
 
         /* Decode the 13 bit AC altitude field (in DF 20 and others).
@@ -619,8 +602,8 @@ namespace AdsbTranslator
          * or MDOES_UNIT_FEETS.*/
         private void decodeAC13Field()
         {
-            int m_bit = currentModesMessage.msg[3] & (1 << 6);
-            int q_bit = currentModesMessage.msg[3] & (1 << 4);
+            int m_bit = currentModesMessage.message[3] & (1 << 6);
+            int q_bit = currentModesMessage.message[3] & (1 << 4);
 
             if (m_bit == 0)
             {
@@ -629,7 +612,7 @@ namespace AdsbTranslator
                 {
                     /* N is the 11 bit integer resulting from the removal of bit
                     * Q and M */
-                    int n = ((currentModesMessage.msg[2] & 31) << 6) | ((currentModesMessage.msg[3] & 0x80) >> 2) | ((currentModesMessage.msg[3] & 0x20) >> 1) | (currentModesMessage.msg[3] & 15);
+                    int n = ((currentModesMessage.message[2] & 31) << 6) | ((currentModesMessage.message[3] & 0x80) >> 2) | ((currentModesMessage.message[3] & 0x20) >> 1) | (currentModesMessage.message[3] & 15);
                     /* The final altitude is due to the resulting number multiplied
                     * by 25, minus 1000. */
                     currentModesMessage.altitude = n * 25 - 1000;
@@ -637,7 +620,7 @@ namespace AdsbTranslator
                 else
                 {   //Should not happen in europe
                     // N is an 11 bit Gillham coded altitude
-                    int n = ModeAToModeC(decodeID13Field(currentModesMessage.msg[3]));
+                    int n = ModeAToModeC(decodeID13Field(currentModesMessage.message[3]));
                     
                     if (n < -12) n = 0;
 
@@ -705,19 +688,19 @@ namespace AdsbTranslator
         /* Decode the 12 bit AC altitude field (in DF 17 and others).*/
         private void decodeAC12Field()
         {
-            int q_bit = currentModesMessage.msg[5] & 1;
+            int q_bit = currentModesMessage.message[5] & 1;
             currentModesMessage.unit = _unitFeet;
             if (q_bit != 0)
             {
                 /* N is the 11 bit integer resulting from the removal of bit Q */
                 
-                int n = ((currentModesMessage.msg[5] >> 1) << 4) | ((currentModesMessage.msg[6] & 0xF0) >> 4);
+                int n = ((currentModesMessage.message[5] >> 1) << 4) | ((currentModesMessage.message[6] & 0xF0) >> 4);
                 /* The final altitude is due to the resulting number multiplied by 25, minus 1000 */
                 currentModesMessage.altitude = n * 25 - 1000;
             }
             else
             { //Not in Europe
-                int n = ((currentModesMessage.msg[5] & 0x0FC0) << 1) | (currentModesMessage.msg[5] & 0x003F);
+                int n = ((currentModesMessage.message[5] & 0x0FC0) << 1) | (currentModesMessage.message[5] & 0x003F);
                 n = ModeAToModeC(decodeID13Field(n));
                 if (n < -12) { n = 0; }
                 currentModesMessage.altitude = (100 * n);
@@ -727,8 +710,8 @@ namespace AdsbTranslator
         bool bruteForceAP()
         {
             byte[] aux = new byte[_longMessageBytesSize];
-            int msgtype = currentModesMessage.msgtype;
-            int msgbits = currentModesMessage.msgbits;
+            int msgtype = currentModesMessage.downlinkFormat;
+            int msgbits = currentModesMessage.msgSize;
             
             /* 0 - Short air surveillance;
              * 4- Surveillance, altitude reply;
@@ -743,7 +726,7 @@ namespace AdsbTranslator
                 UInt32 crc;
                 int lastbyte = (msgbits / 8) - 1;
                 /* Work on a copy. */
-                Array.Copy(currentModesMessage.msg, aux, msgbits / 8);
+                Array.Copy(currentModesMessage.message, aux, msgbits / 8);
 
                 /* Compute the CRC of the message and XOR it with the AP field
                 * so that we recover the address, because:
@@ -757,9 +740,9 @@ namespace AdsbTranslator
                 addr = (UInt32)(aux[lastbyte] | (aux[lastbyte - 1] << 8) | (aux[lastbyte - 2] << 16));
                 if (icaolist.ContainsKey(addr))
                 {
-                    currentModesMessage.aa1 = aux[lastbyte - 2];
-                    currentModesMessage.aa2 = aux[lastbyte - 1];
-                    currentModesMessage.aa3 = aux[lastbyte];
+                    currentModesMessage.icaoAddrPartOne = aux[lastbyte - 2];
+                    currentModesMessage.icaoAddrPartTwo = aux[lastbyte - 1];
+                    currentModesMessage.icaoAddrPartThree = aux[lastbyte];
                     return true;
                 }
             }
@@ -772,67 +755,67 @@ namespace AdsbTranslator
             String tempRespond="";
             int emergency = 0, ground = 0, alert = 0, spi = 0;
 
-            if (currentModesMessage.msgtype == 4 || currentModesMessage.msgtype == 5 || currentModesMessage.msgtype == 21)
+            if (currentModesMessage.downlinkFormat == 4 || currentModesMessage.downlinkFormat == 5 || currentModesMessage.downlinkFormat == 21)
             {
                 /* Node: identity is calculated/kept in base10 but is actually octal (07500 is represented as 7500) */
-                if (currentModesMessage.identity == 7500 || currentModesMessage.identity == 7600 || currentModesMessage.identity == 7700)
+                if (currentModesMessage.squawkIdentity == 7500 || currentModesMessage.squawkIdentity == 7600 || currentModesMessage.squawkIdentity == 7700)
                     emergency = -1;
-                if (currentModesMessage.fs == 1 || currentModesMessage.fs == 3)
+                if (currentModesMessage.flightStatus == 1 || currentModesMessage.flightStatus == 3)
                     ground = -1;
-                if (currentModesMessage.fs == 2 || currentModesMessage.fs == 3 || currentModesMessage.fs == 4)
+                if (currentModesMessage.flightStatus == 2 || currentModesMessage.flightStatus == 3 || currentModesMessage.flightStatus == 4)
                     alert = -1;
-                if (currentModesMessage.fs == 4 || currentModesMessage.fs == 5)
+                if (currentModesMessage.flightStatus == 4 || currentModesMessage.flightStatus == 5)
                     spi = -1;
             }
 
-            if (currentModesMessage.msgtype == 0)
+            if (currentModesMessage.downlinkFormat == 0)
             {
-                tempRespond = string.Format("MSG,5,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.altitude);
+                tempRespond = string.Format("MSG,5,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,,,,", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.altitude);
             }
-            else if (currentModesMessage.msgtype == 4)
+            else if (currentModesMessage.downlinkFormat == 4)
             {
-                tempRespond = string.Format("MSG,5,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,{4:D},{5:D},{6:D},{7:D}", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.altitude, alert, emergency, spi, ground);
+                tempRespond = string.Format("MSG,5,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,{4:D},{5:D},{6:D},{7:D}", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.altitude, alert, emergency, spi, ground);
             }
-            else if (currentModesMessage.msgtype == 5)
+            else if (currentModesMessage.downlinkFormat == 5)
             {
-                tempRespond = string.Format("MSG,6,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,{3:D},{4:D},{5:D},{6:D},{7:D}", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.identity, alert, emergency, spi, ground);
+                tempRespond = string.Format("MSG,6,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,{3:D},{4:D},{5:D},{6:D},{7:D}", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.squawkIdentity, alert, emergency, spi, ground);
             }
-            else if (currentModesMessage.msgtype == 11)
+            else if (currentModesMessage.downlinkFormat == 11)
             {
-                tempRespond = string.Format("MSG,8,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3);
+                tempRespond = string.Format("MSG,8,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,,,,,", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree);
             }
-            else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype == 4)
+            else if (currentModesMessage.downlinkFormat == 17 && currentModesMessage.esMessageType == 4)
             {
-                string flightNumber = new string(currentModesMessage.flight);
+                string flightNumber = new string(currentModesMessage.flightNumber);
                 if (createID)
                 {
-                    tempRespond = string.Format("ID,,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
+                    tempRespond = string.Format("ID,,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, flightNumber);
                 }
                 else
                 {
-                    tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, flightNumber);
+                    tempRespond = string.Format("MSG,1,,,{0:X2}{1:X2}{2:X2},,,,,,{3},,,,,,,,,,,", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, flightNumber);
                 }
                 
             }
-            else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype >= 9 && currentModesMessage.metype <= 18)
+            else if (currentModesMessage.downlinkFormat == 17 && currentModesMessage.esMessageType >= 9 && currentModesMessage.esMessageType <= 18)
             {
-                if (a.lat == 0 && a.lon == 0)
-                    tempRespond = string.Format("MSG,3,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,0,0,0,0", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.altitude);
+                if (currentModesMessage.latitude == 0 && currentModesMessage.longitude == 0)
+                    tempRespond = string.Format("MSG,3,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,,,,,0,0,0,0", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.altitude);
                 else
                 {
-                    String tempLat = string.Format("{0:F5}", currentModesMessage.lat).Replace(",", ".");
-                    String tempLon = string.Format("{0:F5}", currentModesMessage.lon).Replace(",", ".");
-                    tempRespond = string.Format("MSG,3,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,{4},{5},,,0,0,0,0", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.altitude, tempLat, tempLon);
+                    String tempLat = string.Format("{0:F5}", currentModesMessage.latitude).Replace(",", ".");
+                    String tempLon = string.Format("{0:F5}", currentModesMessage.longitude).Replace(",", ".");
+                    tempRespond = string.Format("MSG,3,,,{0:X2}{1:X2}{2:X2},,,,,,,{3:D},,,{4},{5},,,0,0,0,0", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.altitude, tempLat, tempLon);
                 }
             }
-            else if (currentModesMessage.msgtype == 17 && currentModesMessage.metype == 19 && currentModesMessage.mesub == 1)
+            else if (currentModesMessage.downlinkFormat == 17 && currentModesMessage.esMessageType == 19 && currentModesMessage.esMessageSubType == 1)
             {
-                int vr = (currentModesMessage.vert_rate_sign == 0 ? 1 : -1) * (currentModesMessage.vert_rate - 1) * 64;
-                tempRespond = string.Format("MSG,4,,,{0:X2}{1:X2}{2:X2},,,,,,,,{3:D},{4:D},,,{5:D},,0,0,0,0", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.velocity, currentModesMessage.heading, vr);
+                int vr = (currentModesMessage.verticalRateSign == 0 ? 1 : -1) * (currentModesMessage.verticalRate - 1) * 64;
+                tempRespond = string.Format("MSG,4,,,{0:X2}{1:X2}{2:X2},,,,,,,,{3:D},{4:D},,,{5:D},,0,0,0,0", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.velocity, currentModesMessage.track, vr);
             }
-            else if (currentModesMessage.msgtype == 21)
+            else if (currentModesMessage.downlinkFormat == 21)
             {
-                tempRespond = string.Format("MSG,6,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,{3:D},{4:D},{5:D},{6:D},{7:D}", currentModesMessage.aa1, currentModesMessage.aa2, currentModesMessage.aa3, currentModesMessage.identity, alert, emergency, spi, ground);
+                tempRespond = string.Format("MSG,6,,,{0:X2}{1:X2}{2:X2},,,,,,,,,,,,,{3:D},{4:D},{5:D},{6:D},{7:D}", currentModesMessage.icaoAddrPartOne, currentModesMessage.icaoAddrPartTwo, currentModesMessage.icaoAddrPartThree, currentModesMessage.squawkIdentity, alert, emergency, spi, ground);
             }
 
             if (!String.IsNullOrEmpty(messageSBS))

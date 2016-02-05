@@ -6,26 +6,26 @@ using System.Threading.Tasks;
 
 namespace AdsbTranslator
 {
+    /* Storage class for information about particular aircraft */
     class Aircraft
     {
-        public UInt32 addr;
-        public UInt32 seen;
-        public int odd_cprlat;
-        public int odd_cprlon;
-        public int even_cprlat;
-        public int even_cprlon;
-        public double odd_cprtime;
-        public double even_cprtime;
-        public double lat;
-        public double lon;
-        public int altitude;
-        public int speed;
-        public int track;
-        public char[] flight;
+        public UInt32 addr;//ICAO address
+        public UInt32 lastSeen;//Unix Time Stamp (s) of last successfully decoded message
+        public char[] flight;//8 chars flight number - probably not needed here
+
+         /* Partial data - you have to decode full information
+         * How-to: http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
+         * We decode full information only when time between frames is =< 10 seconds
+         */
+        public int oddFrameCprLatitude;
+        public int oddFrameCprLongitude;
+        public int evenFrameCprLatitude;
+        public int evenFrameCprLongitude;
+        public UInt32 oddFrameCprTime;//Unix Time Stamp (s) of last successfully decoded message with odd frame
+        public UInt32 evenFrameCprTime;//Unix Time Stamp (s) of last successfully decoded message with even frame
 
         public Aircraft()
         {
-
             flight = new char[9];
         }
     }

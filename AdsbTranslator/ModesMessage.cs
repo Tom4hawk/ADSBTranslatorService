@@ -6,63 +6,52 @@ using System.Threading.Tasks;
 
 namespace AdsbTranslator
 {
-    class ModesMessage
+    /* Storage for data from one message */
+    class DecodedMessage
     {
-        /* Useful consts */
-        const int _longMessageBytesSize = 14;//bytes (112 bits)
-        const int _shortMessageBytesSize = 7;//bytes (56 bits)
-        const int _longMessageBitsSize = _longMessageBytesSize * 8;
-        const int _shortMessageBitsSize = _shortMessageBytesSize * 8;
-
         /* Generic fields */
-        public byte[] msg;          /* Binary message. */
-        public int msgbits;         /* Number of bits in message */
-        public int msgtype;         /* Downlink format # */
-        public bool crcok;          /* True if CRC was valid */
-        public UInt32 crc;          /* Message CRC */
-        public int errorbit;        /* Bit corrected. -1 if no bit corrected. */
-        public int aa1, aa2, aa3;   /* ICAO Address bytes 1 2 and 3 */
+        public byte[] message; // binary message
+        public int msgSize; // in bits
+        public int downlinkFormat;
+        public bool validCrc;
+        public UInt32 messageCrc;
+        public int correctedBit; // -1 = nothing corrected
+        public int icaoAddrPartOne, icaoAddrPartTwo, icaoAddrPartThree; // ICAO Address hex 1, 2 and 3
 
         /* DF 11 */
-        public int ca;              /* Responder capabilities. */
+        public int responderCapabilities;
 
-        /* DF 17 */
-        public int metype;          /* Extended squitter message type. */
-        public int mesub;           /* Extended squitter message subtype. */
-        public int heading_is_valid;
-        public int heading;
-        public int aircraft_type;
-        public int fflag;           /* 1 = Odd, 0 = Even CPR message. */
-        public int tflag;           /* UTC synchronized? */
-        public int raw_latitude;    /* Non decoded latitude */
-        public int raw_longitude;   /* Non decoded longitude */
-        public char[] flight;       /* 8 chars flight number. */
-        public int ew_dir;          /* 0 = East, 1 = West. */
-        public int ew_velocity;     /* E/W velocity. */
-        public int ns_dir;          /* 0 = North, 1 = South. */
-        public int ns_velocity;     /* N/S velocity. */
-        public int vert_rate_source;/* Vertical rate source. */
-        public int vert_rate_sign;  /* Vertical rate sign. */
-        public int vert_rate;       /* Vertical rate. */
-        public int velocity;        /* Computed from EW and NS velocity. */
+        /* DF 17 - extended squitter(es) */
+        public int esMessageType;
+        public int esMessageSubType;
+        public int track; //calculated not decoded
+        public int parityFlag; // 1 = Odd, 0 = Even CPR message
+        public int rawLatitude; // Non decoded latitude - single frame
+        public int rawLongitude; // Non decoded longitude - single frame
+        public char[] flightNumber; //8 chars flight number
+        public int ewDirection; // 0 = East, 1 = West
+        public int ewVelocity; // E/W velocity
+        public int nsDirection; // 0 = North, 1 = South
+        public int nsVelocity; // N/S velocity
+        public int verticalRateSign;
+        public int verticalRate;
+        public int velocity; // Computed from ewVelocity and nsVelocity
 
         /* DF4, DF5, DF20, DF21 */
-        public int fs;              /* Flight status for DF4,5,20,21 */
-        public int dr;              /* Request extraction of downlink request. */
-        public int um;              /* Request extraction of downlink request. */
-        public int identity;        /* 13 bits identity (Squawk). */
+        public int flightStatus;
+        public int squawkIdentity; // Squawk(13 bits identity)
 
-        /* Fields used by multiple message types. */
+        /* - */
         public int altitude;
         public int unit;
 
-        public double lat;
-        public double lon;
+        public double latitude;
+        public double longitude;
         
-        public ModesMessage()
+        public DecodedMessage()
         {
-            msg = new byte[_longMessageBytesSize];
-            flight = new char[9];
+            message = new byte[14]; //Long message size in bytes
+            flightNumber = new char[9];
         }
     }
 }
