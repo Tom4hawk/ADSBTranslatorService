@@ -15,7 +15,7 @@ namespace AdsbTranslator
         public int downlinkFormat;
         public bool validCrc;
         public UInt32 messageCrc;
-        public int correctedBit; // -1 = nothing corrected
+        public int correctedBit; // -1 = nothing corrected but something is wrong
         public int icaoAddrPartOne, icaoAddrPartTwo, icaoAddrPartThree; // ICAO Address hex 1, 2 and 3
 
         /* DF 11 */

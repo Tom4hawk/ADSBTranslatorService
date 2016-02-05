@@ -11,7 +11,7 @@ namespace AdsbTranslator
     {
         public UInt32 addr;//ICAO address
         public UInt32 lastSeen;//Unix Time Stamp (s) of last successfully decoded message
-        public char[] flight;//8 chars flight number - probably not needed here
+        public char[] flight;//8 chars flight number - needed only to determine whether we've seen it before
 
          /* Partial data - you have to decode full information
          * How-to: http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
